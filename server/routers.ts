@@ -20,7 +20,7 @@ import {
   saveQuoteRecord,
   upsertCapitalRate,
 } from "./db";
-import { calculateQuote, FALLBACK_CAPITAL_RULES, type CapitalRules } from "../lib/quote-engine";
+import { compareQuotes, FALLBACK_CAPITAL_RULES, type CapitalRules } from "../lib/quote-engine";
 
 async function loadCapitalRules(): Promise<CapitalRules> {
   const rows = await listCapitalRates();
@@ -42,6 +42,8 @@ function rowToRecord(row: Awaited<ReturnType<typeof listQuoteRecords>>[number]):
     imageUri: row.imageUri ?? undefined,
     vehicle: row.vehicle,
     conditions: row.conditions,
+    compareResults: row.compareResults ?? undefined,
+    selectedCompany: row.selectedCompany ?? undefined,
     result: row.result ?? undefined,
   };
 }
@@ -80,16 +82,18 @@ export const appRouter = router({
         imageUri: input.imageUri ?? null,
         vehicle: input.vehicle,
         conditions: input.conditions,
+        compareResults: input.compareResults ?? null,
+        selectedCompany: input.selectedCompany ?? null,
         result: input.result ?? null,
         createdAt: new Date(input.createdAt),
       });
       return { success: true } as const;
     }),
-    calculate: protectedProcedure
+    compare: protectedProcedure
       .input(z.object({ vehicle: vehicleInfoSchema, conditions: quoteConditionsSchema }))
       .mutation(async ({ input }) => {
         const rates = await loadCapitalRules();
-        return calculateQuote(input.vehicle, input.conditions, rates);
+        return compareQuotes(input.vehicle, input.conditions, rates);
       }),
     delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
       await deleteQuoteRecord(input.id);
@@ -107,7 +111,7 @@ export const appRouter = router({
       )
       .mutation(async ({ input }) => {
         const response = await invokeLLM({
-          model: "gemini-3.5-flash",
+          model: "claude-haiku-4-5-20251001",
           messages: [
             {
               role: "system",
@@ -123,16 +127,15 @@ export const appRouter = router({
                 },
                 {
                   type: "image_url",
-                  image_url: { url: input.imageDataUrl, detail: "high" },
+                  image_url: { url: input.imageDataUrl },
                 },
               ],
             },
           ],
-          response_format: {
+          responseFormat: {
             type: "json_schema",
             json_schema: {
               name: "vehicle_inquiry",
-              strict: true,
               schema: {
                 type: "object",
                 properties: {
@@ -162,12 +165,7 @@ export const appRouter = router({
           maxTokens: 1200,
         });
 
-        const content = response.choices[0]?.message?.content;
-        if (typeof content !== "string") {
-          throw new Error("이미지 분석 결과를 읽지 못했습니다.");
-        }
-
-        return inquiryExtractionSchema.parse(JSON.parse(content));
+        return inquiryExtractionSchema.parse(JSON.parse(response.content));
       }),
   }),
   rates: router({

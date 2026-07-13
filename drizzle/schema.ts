@@ -1,5 +1,5 @@
 import { double, int, json, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
-import type { QuoteConditions, QuoteResult, VehicleInfo } from "../shared/quote";
+import type { CompareResult, QuoteConditions, QuoteResult, VehicleInfo } from "../shared/quote";
 
 /**
  * Core user table backing auth flow.
@@ -54,6 +54,8 @@ export const quoteRecords = mysqlTable("quoteRecords", {
   imageUri: text("imageUri"),
   vehicle: json("vehicle").$type<VehicleInfo>().notNull(),
   conditions: json("conditions").$type<QuoteConditions>().notNull(),
+  compareResults: json("compareResults").$type<CompareResult[]>(),
+  selectedCompany: mysqlEnum("selectedCompany", ["orix", "shinhan", "hana"]),
   result: json("result").$type<QuoteResult>(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

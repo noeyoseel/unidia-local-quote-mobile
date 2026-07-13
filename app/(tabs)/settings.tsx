@@ -8,6 +8,7 @@ import { useColors } from "@/hooks/use-colors";
 import * as Api from "@/lib/_core/api";
 import * as Auth from "@/lib/_core/auth";
 import { useQuoteStore } from "@/lib/quote-store";
+import { trpc } from "@/lib/trpc";
 
 function GuideRow({
   icon,
@@ -44,6 +45,7 @@ function GuideRow({
 export default function SettingsScreen() {
   const colors = useColors();
   const router = useRouter();
+  const utils = trpc.useUtils();
   const { records, clearRecords } = useQuoteStore();
 
   const handleLogout = () => {
@@ -56,6 +58,7 @@ export default function SettingsScreen() {
           await Api.logout().catch(() => {});
           await Auth.removeSessionToken();
           await Auth.clearUserInfo();
+          await utils.auth.me.invalidate();
           router.replace("/login");
         },
       },

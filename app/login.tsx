@@ -7,10 +7,12 @@ import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import * as Api from "@/lib/_core/api";
 import * as Auth from "@/lib/_core/auth";
+import { trpc } from "@/lib/trpc";
 
 export default function LoginScreen() {
   const colors = useColors();
   const router = useRouter();
+  const utils = trpc.useUtils();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -34,6 +36,10 @@ export default function LoginScreen() {
         loginMethod: user.loginMethod,
         lastSignedIn: new Date(user.lastSignedIn ?? Date.now()),
       });
+      // The tab layout's auth.me query was cached as "not logged in" before
+      // this login happened — invalidate it so it refetches instead of
+      // bouncing straight back to /login on stale cached data.
+      await utils.auth.me.invalidate();
       router.replace("/(tabs)");
     } catch (err) {
       setError(err instanceof Error ? err.message : "로그인에 실패했습니다.");

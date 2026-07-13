@@ -21,7 +21,7 @@ import { captureRef } from "react-native-view-shot";
 import { Card, FormField, PageHeader, PrimaryButton, SelectChip } from "@/components/quote-ui";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
-import { formatKrw, validateQuoteInput } from "@/lib/quote-engine";
+import { formatKrw, validateQuoteConditions, validateQuoteInput } from "@/lib/quote-engine";
 import { useQuoteStore } from "@/lib/quote-store";
 import { trpc } from "@/lib/trpc";
 import {
@@ -31,6 +31,7 @@ import {
   PRODUCT_LABELS,
   RESIDUAL_LABELS,
   type CapitalCompany,
+  type CompareResult,
   type ProductType,
   type QuoteConditions,
   type QuoteRecord,
@@ -39,18 +40,19 @@ import {
   type VehicleInfo,
 } from "@shared/quote";
 
-const STEPS = ["문의 캡처", "정보 확인", "조건 설정", "견적 결과"];
+const STEPS = ["문의 캡처", "정보 확인", "조건 설정", "비교·선택", "견적 결과"];
 
 function StepProgress({ step }: { step: number }) {
   const colors = useColors();
+  const total = STEPS.length;
   return (
     <View style={styles.progressWrap}>
       <View style={styles.progressTop}>
-        <Text style={[styles.progressLabel, { color: colors.tint }]}>{step + 1}/4 {STEPS[step]}</Text>
-        <Text style={[styles.progressPercent, { color: colors.muted }]}>{(step + 1) * 25}%</Text>
+        <Text style={[styles.progressLabel, { color: colors.tint }]}>{step + 1}/{total} {STEPS[step]}</Text>
+        <Text style={[styles.progressPercent, { color: colors.muted }]}>{Math.round(((step + 1) / total) * 100)}%</Text>
       </View>
       <View style={[styles.progressTrack, { backgroundColor: colors.border }]}>
-        <View style={[styles.progressFill, { width: `${(step + 1) * 25}%`, backgroundColor: colors.tint }]} />
+        <View style={[styles.progressFill, { width: `${((step + 1) / total) * 100}%`, backgroundColor: colors.tint }]} />
       </View>
     </View>
   );
@@ -71,12 +73,14 @@ export default function NewQuoteScreen() {
   const [imageDataUrl, setImageDataUrl] = useState<string>();
   const [vehicle, setVehicle] = useState<VehicleInfo>(EMPTY_VEHICLE);
   const [conditions, setConditions] = useState<QuoteConditions>(DEFAULT_CONDITIONS);
+  const [compareResults, setCompareResults] = useState<CompareResult[]>();
+  const [selectedCompany, setSelectedCompany] = useState<CapitalCompany>();
   const [result, setResult] = useState<QuoteResult>();
   const [notice, setNotice] = useState<string>();
   const loadedId = useRef<string | undefined>(undefined);
   const quoteCardRef = useRef<View>(null);
   const extractMutation = trpc.quote.extractInquiry.useMutation();
-  const calculateMutation = trpc.quote.calculate.useMutation();
+  const compareMutation = trpc.quote.compare.useMutation();
 
   useEffect(() => {
     if (!params.recordId || loadedId.current === params.recordId) return;
@@ -87,8 +91,10 @@ export default function NewQuoteScreen() {
     setImageUri(record.imageUri);
     setVehicle(record.vehicle);
     setConditions(record.conditions);
+    setCompareResults(record.compareResults);
+    setSelectedCompany(record.selectedCompany);
     setResult(record.result);
-    setStep(record.result ? 3 : 1);
+    setStep(record.result ? 4 : record.compareResults ? 3 : 1);
   }, [params.recordId, records]);
 
   const vehicleName = useMemo(
@@ -100,6 +106,8 @@ export default function NewQuoteScreen() {
     status: QuoteRecord["status"],
     nextVehicle = vehicle,
     nextConditions = conditions,
+    nextCompareResults = compareResults,
+    nextSelectedCompany = selectedCompany,
     nextResult = result,
   ): QuoteRecord => {
     const existing = records.find((item) => item.id === quoteId);
@@ -112,6 +120,8 @@ export default function NewQuoteScreen() {
       imageUri,
       vehicle: nextVehicle,
       conditions: nextConditions,
+      compareResults: nextCompareResults,
+      selectedCompany: nextSelectedCompany,
       result: nextResult,
     };
   };
@@ -124,8 +134,21 @@ export default function NewQuoteScreen() {
     setImageDataUrl(undefined);
     setVehicle(EMPTY_VEHICLE);
     setConditions(DEFAULT_CONDITIONS);
+    setCompareResults(undefined);
+    setSelectedCompany(undefined);
     setResult(undefined);
     setNotice(undefined);
+  };
+
+  const toggleCompany = (company: CapitalCompany) => {
+    setConditions((prev) => {
+      const has = prev.capitalCompanies.includes(company);
+      if (has && prev.capitalCompanies.length === 1) return prev; // keep at least one selected
+      const capitalCompanies = has
+        ? prev.capitalCompanies.filter((c) => c !== company)
+        : [...prev.capitalCompanies, company];
+      return { ...prev, capitalCompanies };
+    });
   };
 
   const pickImage = async () => {
@@ -151,7 +174,9 @@ export default function NewQuoteScreen() {
     setNotice(undefined);
     try {
       const extracted = await extractMutation.mutateAsync({ imageDataUrl });
-      const nextVehicle: VehicleInfo = extracted;
+      // AI extraction never reads the customer's phone number off the capture
+      // image — that's entered by hand, so carry over whatever's already set.
+      const nextVehicle: VehicleInfo = { ...extracted, customerPhone: vehicle.customerPhone };
       setVehicle(nextVehicle);
       await saveRecord(buildRecord("consulting", nextVehicle));
       setStep(1);
@@ -175,15 +200,29 @@ export default function NewQuoteScreen() {
     setStep(2);
   };
 
-  const generateQuote = async () => {
+  const runComparison = async () => {
+    const conditionErrors = validateQuoteConditions(vehicle, conditions);
+    if (conditionErrors.length) {
+      Alert.alert("조건을 확인해 주세요", conditionErrors[0]);
+      return;
+    }
     try {
-      const nextResult = await calculateMutation.mutateAsync({ vehicle, conditions });
-      setResult(nextResult);
-      await saveRecord(buildRecord("consulting", vehicle, conditions, nextResult));
+      const nextCompareResults = await compareMutation.mutateAsync({ vehicle, conditions });
+      setCompareResults(nextCompareResults);
+      setSelectedCompany(undefined);
+      setResult(undefined);
+      await saveRecord(buildRecord("consulting", vehicle, conditions, nextCompareResults, undefined, undefined));
       setStep(3);
     } catch (error) {
       Alert.alert("견적 산출 실패", error instanceof Error ? error.message : "입력값을 확인해 주세요.");
     }
+  };
+
+  const selectCompany = async (entry: CompareResult) => {
+    setSelectedCompany(entry.company);
+    setResult(entry.result);
+    await saveRecord(buildRecord("consulting", vehicle, conditions, compareResults, entry.company, entry.result));
+    setStep(4);
   };
 
   const copyMessage = async () => {
@@ -301,7 +340,14 @@ export default function NewQuoteScreen() {
                   <View style={styles.column}><FormField label="계약 기간" value={String(vehicle.contractMonths || "")} onChangeText={(value) => setVehicle({ ...vehicle, contractMonths: moneyInput(value) })} keyboardType="number-pad" suffix="개월" /></View>
                   <View style={styles.column}><FormField label="연간 주행거리" value={vehicle.annualMileage ? vehicle.annualMileage.toLocaleString("ko-KR") : ""} onChangeText={(value) => setVehicle({ ...vehicle, annualMileage: moneyInput(value) })} keyboardType="number-pad" suffix="km" /></View>
                 </View>
-                <FormField label="고객 메모" value={vehicle.customerMemo} onChangeText={(customerMemo) => setVehicle({ ...vehicle, customerMemo })} placeholder="고객명 또는 상담 메모" />
+                <FormField label="고객 메모" value={vehicle.customerMemo} onChangeText={(customerMemo) => setVehicle({ ...vehicle, customerMemo })} placeholder="상담 메모" />
+                <FormField
+                  label="고객 연락처 (선택 · 개인정보)"
+                  value={vehicle.customerPhone}
+                  onChangeText={(customerPhone) => setVehicle({ ...vehicle, customerPhone })}
+                  placeholder="010-0000-0000"
+                  keyboardType="phone-pad"
+                />
               </Card>
               <View style={styles.actionRow}>
                 <View style={styles.actionFlex}><PrimaryButton label="이전" tone="light" onPress={() => setStep(0)} /></View>
@@ -324,10 +370,10 @@ export default function NewQuoteScreen() {
                     <SelectChip key={key} label={PRODUCT_LABELS[key]} selected={conditions.productType === key} onPress={() => setConditions({ ...conditions, productType: key })} />
                   ))}
                 </View>
-                <Text style={[styles.groupTitle, { color: colors.text }]}>캐피탈사</Text>
+                <Text style={[styles.groupTitle, { color: colors.text }]}>캐피탈사 (복수 선택 가능)</Text>
                 <View style={styles.chipWrap}>
                   {(Object.keys(CAPITAL_LABELS) as CapitalCompany[]).map((key) => (
-                    <SelectChip key={key} label={CAPITAL_LABELS[key]} selected={conditions.capitalCompany === key} onPress={() => setConditions({ ...conditions, capitalCompany: key })} />
+                    <SelectChip key={key} label={CAPITAL_LABELS[key]} selected={conditions.capitalCompanies.includes(key)} onPress={() => toggleCompany(key)} />
                   ))}
                 </View>
                 <View style={styles.divider} />
@@ -349,15 +395,57 @@ export default function NewQuoteScreen() {
               </Card>
               <View style={styles.actionRow}>
                 <View style={styles.actionFlex}><PrimaryButton label="이전" tone="light" onPress={() => setStep(1)} /></View>
-                <View style={styles.actionWide}><PrimaryButton label={calculateMutation.isPending ? "산출 중…" : "견적 산출"} icon="calculate" tone="dark" onPress={generateQuote} disabled={calculateMutation.isPending} /></View>
+                <View style={styles.actionWide}><PrimaryButton label={compareMutation.isPending ? "산출 중…" : "견적 산출"} icon="calculate" tone="dark" onPress={runComparison} disabled={compareMutation.isPending} /></View>
               </View>
             </View>
           ) : null}
 
-          {step === 3 && result ? (
+          {step === 3 && compareResults ? (
             <View style={styles.sectionGap}>
               <PageHeader
-                eyebrow="STEP 04 · COMPLETE"
+                eyebrow="STEP 04 · COMPARE"
+                title="캐피탈사별 견적을 비교하세요"
+                description="가장 낮은 월 납입금에 표시가 붙습니다. 고객에게 전달할 하나를 선택하세요."
+              />
+              {(() => {
+                const lowest = compareResults.reduce((min, entry) =>
+                  entry.result.monthlyPayment < min.result.monthlyPayment ? entry : min,
+                );
+                return compareResults
+                  .slice()
+                  .sort((a, b) => a.result.monthlyPayment - b.result.monthlyPayment)
+                  .map((entry) => (
+                    <Card key={entry.company} style={styles.compareCard}>
+                      <View style={styles.compareTop}>
+                        <Text style={[styles.compareCompany, { color: colors.text }]}>{CAPITAL_LABELS[entry.company]}</Text>
+                        {entry.company === lowest.company ? (
+                          <View style={[styles.lowestBadge, { backgroundColor: colors.success }]}>
+                            <Text style={styles.lowestBadgeText}>최저가</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text style={[styles.compareMonthly, { color: colors.text }]}>월 {formatKrw(entry.result.monthlyPayment)}</Text>
+                      <View style={styles.compareMetrics}>
+                        <Text style={[styles.compareMetric, { color: colors.muted }]}>초기비용 {formatKrw(entry.result.upfrontCost)}</Text>
+                        <Text style={[styles.compareMetric, { color: colors.muted }]}>잔존가치 {formatKrw(entry.result.residualValue)}</Text>
+                      </View>
+                      <PrimaryButton
+                        label="이 조건으로 선택"
+                        icon="check-circle"
+                        tone={entry.company === lowest.company ? "dark" : "light"}
+                        onPress={() => void selectCompany(entry)}
+                      />
+                    </Card>
+                  ));
+              })()}
+              <PrimaryButton label="조건 다시 조정" tone="light" onPress={() => setStep(2)} />
+            </View>
+          ) : null}
+
+          {step === 4 && result && selectedCompany ? (
+            <View style={styles.sectionGap}>
+              <PageHeader
+                eyebrow="STEP 05 · COMPLETE"
                 title="고객용 견적이 완성되었습니다"
                 description="금액과 안내 문구를 확인한 뒤 복사하거나 바로 공유하세요."
               />
@@ -368,7 +456,7 @@ export default function NewQuoteScreen() {
                   <Text style={styles.quoteDate}>{new Intl.DateTimeFormat("ko-KR").format(new Date(result.generatedAt))}</Text>
                 </View>
                 <Text style={styles.quoteVehicle}>{vehicleName}</Text>
-                <Text style={styles.quoteMeta}>{PRODUCT_LABELS[conditions.productType]} · {CAPITAL_LABELS[conditions.capitalCompany]} · {vehicle.contractMonths}개월</Text>
+                <Text style={styles.quoteMeta}>{PRODUCT_LABELS[conditions.productType]} · {CAPITAL_LABELS[selectedCompany]} · {vehicle.contractMonths}개월</Text>
                 <View style={styles.monthlyBlock}>
                   <Text style={styles.monthlyLabel}>예상 월 납입금</Text>
                   <Text style={styles.monthlyAmount}>{formatKrw(result.monthlyPayment)}</Text>
@@ -393,6 +481,7 @@ export default function NewQuoteScreen() {
                 <View style={styles.actionFlex}><PrimaryButton label="견적 공유" icon="ios-share" onPress={shareQuote} /></View>
               </View>
               <PrimaryButton label="최종 확정 및 저장" icon="task-alt" tone="dark" onPress={completeQuote} />
+              <PrimaryButton label="다른 캐피탈사 다시 보기" tone="light" onPress={() => setStep(3)} />
               <PrimaryButton label="조건 다시 조정" tone="light" onPress={() => setStep(2)} />
             </View>
           ) : null}
@@ -412,6 +501,14 @@ const styles = StyleSheet.create({
   progressPercent: { fontSize: 12, lineHeight: 17, fontWeight: "700" },
   progressTrack: { height: 4, borderRadius: 2, overflow: "hidden" },
   progressFill: { height: 4, borderRadius: 2 },
+  compareCard: { gap: 10 },
+  compareTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  compareCompany: { fontSize: 16, lineHeight: 22, fontWeight: "900" },
+  lowestBadge: { paddingHorizontal: 9, paddingVertical: 3, borderRadius: 999 },
+  lowestBadgeText: { color: "#FFFFFF", fontSize: 11, fontWeight: "800" },
+  compareMonthly: { fontSize: 22, lineHeight: 28, fontWeight: "900" },
+  compareMetrics: { flexDirection: "row", gap: 14 },
+  compareMetric: { fontSize: 12.5, fontWeight: "600" },
   uploadCard: { alignItems: "center", gap: 12, paddingVertical: 22 },
   uploadIcon: { width: 72, height: 72, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   previewImage: { width: "100%", height: 210, borderRadius: 14 },

@@ -3,6 +3,7 @@ import {
   PRODUCT_LABELS,
   RESIDUAL_LABELS,
   type CapitalCompany,
+  type CompareResult,
   type ProductType,
   type QuoteConditions,
   type QuoteResult,
@@ -50,20 +51,48 @@ export function validateQuoteInput(vehicle: VehicleInfo) {
   return errors;
 }
 
+/** Discount above this share of the vehicle price is treated as a margin risk and blocked. */
+export const MAX_DISCOUNT_RATIO = 0.2;
+
+/**
+ * Hard-rule checks on the sales conditions themselves (separate from
+ * validateQuoteInput, which checks the vehicle record). These are the
+ * counselor-approval gate's actual enforcement: over-discount and
+ * negative-margin conditions never reach a calculated quote.
+ */
+export function validateQuoteConditions(vehicle: VehicleInfo, conditions: QuoteConditions) {
+  const errors: string[] = [];
+  if (conditions.discountAmount < 0) {
+    errors.push("할인 금액은 0 이상이어야 합니다.");
+  } else if (
+    vehicle.vehiclePrice > 0 &&
+    conditions.discountAmount > vehicle.vehiclePrice * MAX_DISCOUNT_RATIO
+  ) {
+    errors.push(
+      `할인 금액이 차량가의 ${MAX_DISCOUNT_RATIO * 100}%를 초과합니다. 마진 보호를 위해 이 조건으로는 견적을 산출할 수 없습니다.`,
+    );
+  }
+  if (conditions.additionalFeeRate < 0) {
+    errors.push("추가 수수료·인센티브율은 0% 이상이어야 합니다.");
+  }
+  return errors;
+}
+
 export function calculateQuote(
   vehicle: VehicleInfo,
   conditions: QuoteConditions,
+  capitalCompany: CapitalCompany,
   rates: CapitalRules = FALLBACK_CAPITAL_RULES,
   generatedAt = new Date().toISOString(),
 ): QuoteResult {
-  const errors = validateQuoteInput(vehicle);
+  const errors = [...validateQuoteInput(vehicle), ...validateQuoteConditions(vehicle, conditions)];
   if (errors.length) throw new Error(errors[0]);
 
   const effectiveVehiclePrice = Math.max(
     vehicle.vehiclePrice - Math.max(conditions.discountAmount, 0),
     0,
   );
-  const capitalRule = rates[conditions.capitalCompany];
+  const capitalRule = rates[capitalCompany];
   const baseResidual = conditions.residualMode === "maximum" ? 0.5 : 0.42;
   const mileageAdjustment = vehicle.annualMileage >= 30_000 ? -0.04 : vehicle.annualMileage >= 20_000 ? -0.02 : 0;
   const residualRate = Math.min(
@@ -91,6 +120,10 @@ export function calculateQuote(
       : (financedPresentValue * monthlyRate) /
           (1 - Math.pow(1 + monthlyRate, -months)),
   );
+  if (monthlyPayment <= 0) {
+    throw new Error("계산된 월 납입금이 0원 이하입니다. 할인·수수료·잔가 조건을 다시 확인해 주세요.");
+  }
+
   const upfrontCost = Math.round(
     effectiveVehiclePrice * PRODUCT_UPFRONT_RATE[conditions.productType],
   );
@@ -104,7 +137,7 @@ export function calculateQuote(
     "요청하신 차량 견적을 안내드립니다.",
     "",
     `• 차량: ${vehicleName}`,
-    `• 상품: ${PRODUCT_LABELS[conditions.productType]} / ${CAPITAL_LABELS[conditions.capitalCompany]}`,
+    `• 상품: ${PRODUCT_LABELS[conditions.productType]} / ${CAPITAL_LABELS[capitalCompany]}`,
     `• 계약: ${months}개월 / 연 ${vehicle.annualMileage.toLocaleString("ko-KR")}km`,
     `• 초기비용: ${formatKrw(upfrontCost)}`,
     `• 예상 월 납입금: ${formatKrw(monthlyPayment)}`,
@@ -122,4 +155,17 @@ export function calculateQuote(
     generatedAt,
     message,
   };
+}
+
+/** Runs calculateQuote once per selected company for side-by-side comparison. */
+export function compareQuotes(
+  vehicle: VehicleInfo,
+  conditions: QuoteConditions,
+  rates: CapitalRules = FALLBACK_CAPITAL_RULES,
+  generatedAt = new Date().toISOString(),
+): CompareResult[] {
+  return conditions.capitalCompanies.map((company) => ({
+    company,
+    result: calculateQuote(vehicle, conditions, company, rates, generatedAt),
+  }));
 }

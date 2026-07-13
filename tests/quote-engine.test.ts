@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { calculateQuote, FALLBACK_CAPITAL_RULES, validateQuoteInput } from "@/lib/quote-engine";
+import {
+  calculateQuote,
+  compareQuotes,
+  FALLBACK_CAPITAL_RULES,
+  validateQuoteConditions,
+  validateQuoteInput,
+} from "@/lib/quote-engine";
 import { DEFAULT_CONDITIONS, EMPTY_VEHICLE, type VehicleInfo } from "@shared/quote";
 
 const vehicle: VehicleInfo = {
@@ -18,6 +24,7 @@ describe("quote engine", () => {
     const result = calculateQuote(
       vehicle,
       DEFAULT_CONDITIONS,
+      "shinhan",
       FALLBACK_CAPITAL_RULES,
       "2026-07-13T00:00:00.000Z",
     );
@@ -31,12 +38,12 @@ describe("quote engine", () => {
   });
 
   it("applies discount and raises residual value in maximum mode", () => {
-    const standard = calculateQuote(vehicle, DEFAULT_CONDITIONS);
-    const adjusted = calculateQuote(vehicle, {
-      ...DEFAULT_CONDITIONS,
-      discountAmount: 2_000_000,
-      residualMode: "maximum",
-    });
+    const standard = calculateQuote(vehicle, DEFAULT_CONDITIONS, "shinhan");
+    const adjusted = calculateQuote(
+      vehicle,
+      { ...DEFAULT_CONDITIONS, discountAmount: 2_000_000, residualMode: "maximum" },
+      "shinhan",
+    );
 
     expect(adjusted.effectiveVehiclePrice).toBe(50_000_000);
     expect(adjusted.monthlyPayment).toBeLessThan(standard.monthlyPayment);
@@ -46,11 +53,12 @@ describe("quote engine", () => {
   });
 
   it("reflects product-specific upfront cost", () => {
-    const rental = calculateQuote(vehicle, { ...DEFAULT_CONDITIONS, productType: "rental" });
-    const financeLease = calculateQuote(vehicle, {
-      ...DEFAULT_CONDITIONS,
-      productType: "financeLease",
-    });
+    const rental = calculateQuote(vehicle, { ...DEFAULT_CONDITIONS, productType: "rental" }, "shinhan");
+    const financeLease = calculateQuote(
+      vehicle,
+      { ...DEFAULT_CONDITIONS, productType: "financeLease" },
+      "shinhan",
+    );
 
     expect(rental.upfrontCost).toBe(0);
     expect(financeLease.upfrontCost).toBe(Math.round(vehicle.vehiclePrice * 0.08));
@@ -63,6 +71,36 @@ describe("quote engine", () => {
     expect(errors).toContain("브랜드를 입력해 주세요.");
     expect(errors).toContain("차량 가격을 확인해 주세요.");
     expect(errors).toContain("계약 기간은 12~84개월로 입력해 주세요.");
-    expect(() => calculateQuote(invalid, DEFAULT_CONDITIONS)).toThrow("브랜드를 입력해 주세요.");
+    expect(() => calculateQuote(invalid, DEFAULT_CONDITIONS, "shinhan")).toThrow("브랜드를 입력해 주세요.");
+  });
+
+  it("blocks discounts above the margin-protection threshold", () => {
+    const overDiscounted = { ...DEFAULT_CONDITIONS, discountAmount: 20_000_000 };
+    const errors = validateQuoteConditions(vehicle, overDiscounted);
+
+    expect(errors[0]).toContain("20%를 초과합니다");
+    expect(() => calculateQuote(vehicle, overDiscounted, "shinhan")).toThrow("20%를 초과합니다");
+  });
+
+  it("allows a discount right at the threshold and blocks a negative discount", () => {
+    const atThreshold = { ...DEFAULT_CONDITIONS, discountAmount: vehicle.vehiclePrice * 0.2 };
+    expect(validateQuoteConditions(vehicle, atThreshold)).toHaveLength(0);
+
+    const negativeDiscount = { ...DEFAULT_CONDITIONS, discountAmount: -1 };
+    expect(validateQuoteConditions(vehicle, negativeDiscount)[0]).toContain("0 이상");
+  });
+
+  it("rejects a negative additional fee rate", () => {
+    const errors = validateQuoteConditions(vehicle, { ...DEFAULT_CONDITIONS, additionalFeeRate: -1 });
+    expect(errors[0]).toContain("수수료");
+  });
+
+  it("blocks the whole comparison batch when the shared discount is over the limit", () => {
+    const overDiscounted: typeof DEFAULT_CONDITIONS = {
+      ...DEFAULT_CONDITIONS,
+      capitalCompanies: ["orix", "shinhan", "hana"],
+      discountAmount: 20_000_000,
+    };
+    expect(() => compareQuotes(vehicle, overDiscounted)).toThrow("20%를 초과합니다");
   });
 });
