@@ -1,15 +1,29 @@
-import { Tabs } from "expo-router";
-import { Platform } from "react-native";
+import { Redirect, Tabs } from "expo-router";
+import { ActivityIndicator, Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { HapticTab } from "@/components/haptic-tab";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { useColors } from "@/hooks/use-colors";
+import { trpc } from "@/lib/trpc";
 
 export default function TabLayout() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const bottomPadding = Platform.OS === "web" ? 12 : Math.max(insets.bottom, 8);
+  const me = trpc.auth.me.useQuery();
+
+  if (me.isLoading) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.background }}>
+        <ActivityIndicator color={colors.tint} />
+      </View>
+    );
+  }
+
+  if (!me.data) {
+    return <Redirect href="/login" />;
+  }
 
   return (
     <Tabs

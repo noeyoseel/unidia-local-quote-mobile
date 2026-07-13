@@ -61,9 +61,9 @@ export default function HistoryScreen() {
         ListHeaderComponent={
           <View style={styles.headerBlock}>
             <PageHeader
-              eyebrow="LOCAL ARCHIVE"
+              eyebrow="SHARED ARCHIVE"
               title="상담 이력"
-              description="기기에 저장된 상담을 찾아 이어서 편집하거나 완료 견적을 다시 확인하세요."
+              description="두 상담사가 함께 보는 이력입니다. 이어서 편집하거나 완료 견적을 다시 확인하세요."
             />
             <View style={[styles.search, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <MaterialIcons name="search" size={21} color={colors.muted} />
