@@ -9,7 +9,7 @@
 * **프런트엔드**: Expo Router (React Native + 웹), tRPC 클라이언트, NativeWind
 * **백엔드**: Express + tRPC, JWT 쿠키 기반 이메일/비밀번호 로그인
 * **DB**: MySQL (Drizzle ORM) — 상담 이력과 캐피탈사 금리를 서버에 저장해 두 계정이 함께 조회/수정
-* **AI 이미지 추출**: Google Gemini API (OpenAI 호환 엔드포인트)
+* **AI 이미지 추출**: Anthropic API (Claude Haiku)
 
 ## 로컬 개발
 
@@ -37,7 +37,7 @@ pnpm dev                 # 서버(3000) + 웹(8081) 동시 구동
 |---|---|
 | `DATABASE_URL` | MySQL 연결 문자열 (Railway MySQL 플러그인이 자동 제공) |
 | `JWT_SECRET` | 로그인 세션 쿠키 서명 키. 아무 긴 무작위 문자열이면 됩니다 |
-| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/)에서 발급받은 키. AI 이미지 추출에 사용 |
+| `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com/)에서 발급받은 키. AI 이미지 추출에 사용 |
 | `AUTH_USER_1_EMAIL` / `AUTH_USER_1_PASSWORD` | 첫 번째 계정 |
 | `AUTH_USER_2_EMAIL` / `AUTH_USER_2_PASSWORD` | 두 번째 계정 |
 | `EXPO_PUBLIC_API_BASE_URL` | 보통 비워둡니다 (웹은 같은 도메인을 자동으로 씁니다). 프런트/백엔드를 다른 도메인에 분리 배포할 때만 설정 |

@@ -17,13 +17,21 @@ export interface VehicleInfo {
   vehiclePrice: number;
   contractMonths: number;
   annualMileage: number;
+  /** Free-text consultation note. Never auto-filled by AI extraction. */
   customerMemo: string;
+  /**
+   * Personal data — kept as its own field (not folded into customerMemo) and
+   * only ever entered by hand. AI extraction is never asked to read this
+   * from the capture image.
+   */
+  customerPhone: string;
   confidence: number;
 }
 
 export interface QuoteConditions {
   productType: ProductType;
-  capitalCompany: CapitalCompany;
+  /** Companies selected for side-by-side comparison. */
+  capitalCompanies: CapitalCompany[];
   discountAmount: number;
   additionalFeeRate: number;
   residualMode: ResidualMode;
@@ -39,6 +47,11 @@ export interface QuoteResult {
   message: string;
 }
 
+export interface CompareResult {
+  company: CapitalCompany;
+  result: QuoteResult;
+}
+
 export interface QuoteRecord {
   id: string;
   status: QuoteStatus;
@@ -47,6 +60,11 @@ export interface QuoteRecord {
   imageUri?: string;
   vehicle: VehicleInfo;
   conditions: QuoteConditions;
+  /** All companies' results from the comparison step. */
+  compareResults?: CompareResult[];
+  /** Which company the counselor picked to finalize for the customer. */
+  selectedCompany?: CapitalCompany;
+  /** The finalized result for selectedCompany (kept top-level for backward-compatible display). */
   result?: QuoteResult;
 }
 
@@ -58,12 +76,13 @@ export const EMPTY_VEHICLE: VehicleInfo = {
   contractMonths: 48,
   annualMileage: 20_000,
   customerMemo: "",
+  customerPhone: "",
   confidence: 0,
 };
 
 export const DEFAULT_CONDITIONS: QuoteConditions = {
   productType: "rental",
-  capitalCompany: "shinhan",
+  capitalCompanies: ["shinhan"],
   discountAmount: 0,
   additionalFeeRate: 0,
   residualMode: "standard",
@@ -94,12 +113,13 @@ export const vehicleInfoSchema = z.object({
   contractMonths: z.number().int().nonnegative(),
   annualMileage: z.number().int().nonnegative(),
   customerMemo: z.string(),
+  customerPhone: z.string(),
   confidence: z.number().min(0).max(1),
 });
 
 export const quoteConditionsSchema = z.object({
   productType: z.enum(PRODUCT_TYPE_VALUES),
-  capitalCompany: z.enum(CAPITAL_COMPANY_VALUES),
+  capitalCompanies: z.array(z.enum(CAPITAL_COMPANY_VALUES)).min(1),
   discountAmount: z.number(),
   additionalFeeRate: z.number(),
   residualMode: z.enum(RESIDUAL_MODE_VALUES),
@@ -115,6 +135,11 @@ export const quoteResultSchema = z.object({
   message: z.string(),
 });
 
+export const compareResultSchema = z.object({
+  company: z.enum(CAPITAL_COMPANY_VALUES),
+  result: quoteResultSchema,
+});
+
 export const quoteRecordInputSchema = z.object({
   id: z.string(),
   status: z.enum(QUOTE_STATUS_VALUES),
@@ -123,5 +148,7 @@ export const quoteRecordInputSchema = z.object({
   imageUri: z.string().optional(),
   vehicle: vehicleInfoSchema,
   conditions: quoteConditionsSchema,
+  compareResults: z.array(compareResultSchema).optional(),
+  selectedCompany: z.enum(CAPITAL_COMPANY_VALUES).optional(),
   result: quoteResultSchema.optional(),
 });

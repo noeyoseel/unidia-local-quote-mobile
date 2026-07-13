@@ -111,6 +111,8 @@ export async function saveQuoteRecord(record: InsertQuoteRecordRow): Promise<voi
         imageUri: record.imageUri,
         vehicle: record.vehicle,
         conditions: record.conditions,
+        compareResults: record.compareResults,
+        selectedCompany: record.selectedCompany,
         result: record.result,
         updatedAt: new Date(),
       },
