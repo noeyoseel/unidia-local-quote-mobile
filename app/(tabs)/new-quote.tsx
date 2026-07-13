@@ -21,7 +21,7 @@ import { captureRef } from "react-native-view-shot";
 import { Card, FormField, PageHeader, PrimaryButton, SelectChip } from "@/components/quote-ui";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
-import { calculateQuote, formatKrw, validateQuoteInput } from "@/lib/quote-engine";
+import { formatKrw, validateQuoteInput } from "@/lib/quote-engine";
 import { useQuoteStore } from "@/lib/quote-store";
 import { trpc } from "@/lib/trpc";
 import {
@@ -76,6 +76,7 @@ export default function NewQuoteScreen() {
   const loadedId = useRef<string | undefined>(undefined);
   const quoteCardRef = useRef<View>(null);
   const extractMutation = trpc.quote.extractInquiry.useMutation();
+  const calculateMutation = trpc.quote.calculate.useMutation();
 
   useEffect(() => {
     if (!params.recordId || loadedId.current === params.recordId) return;
@@ -176,7 +177,7 @@ export default function NewQuoteScreen() {
 
   const generateQuote = async () => {
     try {
-      const nextResult = calculateQuote(vehicle, conditions);
+      const nextResult = await calculateMutation.mutateAsync({ vehicle, conditions });
       setResult(nextResult);
       await saveRecord(buildRecord("consulting", vehicle, conditions, nextResult));
       setStep(3);
@@ -348,7 +349,7 @@ export default function NewQuoteScreen() {
               </Card>
               <View style={styles.actionRow}>
                 <View style={styles.actionFlex}><PrimaryButton label="이전" tone="light" onPress={() => setStep(1)} /></View>
-                <View style={styles.actionWide}><PrimaryButton label="견적 산출" icon="calculate" tone="dark" onPress={generateQuote} /></View>
+                <View style={styles.actionWide}><PrimaryButton label={calculateMutation.isPending ? "산출 중…" : "견적 산출"} icon="calculate" tone="dark" onPress={generateQuote} disabled={calculateMutation.isPending} /></View>
               </View>
             </View>
           ) : null}

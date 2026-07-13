@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { calculateQuote, validateQuoteInput } from "@/lib/quote-engine";
+import { calculateQuote, FALLBACK_CAPITAL_RULES, validateQuoteInput } from "@/lib/quote-engine";
 import { DEFAULT_CONDITIONS, EMPTY_VEHICLE, type VehicleInfo } from "@shared/quote";
 
 const vehicle: VehicleInfo = {
@@ -15,7 +15,12 @@ const vehicle: VehicleInfo = {
 
 describe("quote engine", () => {
   it("produces a deterministic rental estimate and customer message", () => {
-    const result = calculateQuote(vehicle, DEFAULT_CONDITIONS, "2026-07-13T00:00:00.000Z");
+    const result = calculateQuote(
+      vehicle,
+      DEFAULT_CONDITIONS,
+      FALLBACK_CAPITAL_RULES,
+      "2026-07-13T00:00:00.000Z",
+    );
 
     expect(result.monthlyPayment).toBeGreaterThan(0);
     expect(result.residualValue).toBeGreaterThan(0);

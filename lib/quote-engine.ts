@@ -9,12 +9,15 @@ import {
   type VehicleInfo,
 } from "@shared/quote";
 
-interface CapitalRule {
+export interface CapitalRule {
   annualRate: number;
   residualAdjustment: number;
 }
 
-const CAPITAL_RULES: Record<CapitalCompany, CapitalRule> = {
+export type CapitalRules = Record<CapitalCompany, CapitalRule>;
+
+/** Used only as a fallback while rates haven't loaded from the server yet. */
+export const FALLBACK_CAPITAL_RULES: CapitalRules = {
   orix: { annualRate: 0.058, residualAdjustment: 0.01 },
   shinhan: { annualRate: 0.056, residualAdjustment: 0 },
   hana: { annualRate: 0.06, residualAdjustment: 0.005 },
@@ -50,6 +53,7 @@ export function validateQuoteInput(vehicle: VehicleInfo) {
 export function calculateQuote(
   vehicle: VehicleInfo,
   conditions: QuoteConditions,
+  rates: CapitalRules = FALLBACK_CAPITAL_RULES,
   generatedAt = new Date().toISOString(),
 ): QuoteResult {
   const errors = validateQuoteInput(vehicle);
@@ -59,7 +63,7 @@ export function calculateQuote(
     vehicle.vehiclePrice - Math.max(conditions.discountAmount, 0),
     0,
   );
-  const capitalRule = CAPITAL_RULES[conditions.capitalCompany];
+  const capitalRule = rates[conditions.capitalCompany];
   const baseResidual = conditions.residualMode === "maximum" ? 0.5 : 0.42;
   const mileageAdjustment = vehicle.annualMileage >= 30_000 ? -0.04 : vehicle.annualMileage >= 20_000 ? -0.02 : 0;
   const residualRate = Math.min(

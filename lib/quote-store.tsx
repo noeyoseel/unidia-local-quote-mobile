@@ -1,17 +1,7 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type PropsWithChildren,
-} from "react";
+import { createContext, useCallback, useContext, useMemo, type PropsWithChildren } from "react";
 
 import type { QuoteRecord } from "@shared/quote";
-
-const STORAGE_KEY = "@unidia/quote-records/v1";
+import { trpc } from "@/lib/trpc";
 
 type QuoteStoreValue = {
   records: QuoteRecord[];
@@ -24,62 +14,55 @@ type QuoteStoreValue = {
 
 const QuoteStoreContext = createContext<QuoteStoreValue | null>(null);
 
+/**
+ * Backs the useQuoteStore() interface with the server (both counselors'
+ * quotes live in one MySQL table now), instead of per-device AsyncStorage.
+ */
 export function QuoteStoreProvider({ children }: PropsWithChildren) {
-  const [records, setRecords] = useState<QuoteRecord[]>([]);
-  const [isHydrated, setIsHydrated] = useState(false);
+  const utils = trpc.useUtils();
+  const listQuery = trpc.quote.list.useQuery();
+  const saveMutation = trpc.quote.save.useMutation({
+    onSuccess: () => utils.quote.list.invalidate(),
+  });
+  const deleteMutation = trpc.quote.delete.useMutation({
+    onSuccess: () => utils.quote.list.invalidate(),
+  });
+  const clearAllMutation = trpc.quote.clearAll.useMutation({
+    onSuccess: () => utils.quote.list.invalidate(),
+  });
 
-  useEffect(() => {
-    let active = true;
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then((value) => {
-        if (!active || !value) return;
-        const parsed = JSON.parse(value) as QuoteRecord[];
-        if (Array.isArray(parsed)) setRecords(parsed);
-      })
-      .catch(() => setRecords([]))
-      .finally(() => {
-        if (active) setIsHydrated(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const persist = useCallback(async (next: QuoteRecord[]) => {
-    setRecords(next);
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-  }, []);
+  const records = useMemo(() => listQuery.data ?? [], [listQuery.data]);
 
   const saveRecord = useCallback(
     async (record: QuoteRecord) => {
-      const next = [record, ...records.filter((item) => item.id !== record.id)].sort(
-        (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
-      );
-      await persist(next);
+      await saveMutation.mutateAsync(record);
     },
-    [persist, records],
+    [saveMutation],
   );
 
   const deleteRecord = useCallback(
     async (id: string) => {
-      await persist(records.filter((item) => item.id !== id));
+      await deleteMutation.mutateAsync({ id });
     },
-    [persist, records],
+    [deleteMutation],
   );
 
   const clearRecords = useCallback(async () => {
-    setRecords([]);
-    await AsyncStorage.removeItem(STORAGE_KEY);
-  }, []);
+    await clearAllMutation.mutateAsync();
+  }, [clearAllMutation]);
 
-  const getRecord = useCallback(
-    (id: string) => records.find((item) => item.id === id),
-    [records],
-  );
+  const getRecord = useCallback((id: string) => records.find((item) => item.id === id), [records]);
 
   const value = useMemo(
-    () => ({ records, isHydrated, saveRecord, deleteRecord, clearRecords, getRecord }),
-    [clearRecords, deleteRecord, getRecord, isHydrated, records, saveRecord],
+    () => ({
+      records,
+      isHydrated: !listQuery.isLoading,
+      saveRecord,
+      deleteRecord,
+      clearRecords,
+      getRecord,
+    }),
+    [records, listQuery.isLoading, saveRecord, deleteRecord, clearRecords, getRecord],
   );
 
   return <QuoteStoreContext.Provider value={value}>{children}</QuoteStoreContext.Provider>;
