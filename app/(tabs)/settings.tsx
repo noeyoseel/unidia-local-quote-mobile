@@ -16,7 +16,7 @@ function GuideRow({
   description,
   tone = "blue",
 }: {
-  icon: "calculate" | "lock" | "computer" | "info";
+  icon: "calculate" | "lock" | "computer" | "info" | "cloud";
   title: string;
   description: string;
   tone?: "blue" | "mint" | "navy" | "orange";
@@ -115,9 +115,9 @@ export default function SettingsScreen() {
           />
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <GuideRow
-            icon="computer"
-            title="PC Excel 브리지 확장"
-            description="Microsoft Excel 원본 수식을 직접 실행하려면 Windows PC에 별도 브리지 서비스를 설치해 앱의 입력 데이터를 전달해야 합니다."
+            icon="cloud"
+            title="Excel 검증 연동 (예정)"
+            description="Microsoft Excel 원본 수식으로 검증하려면 OneDrive에 올린 캐피탈사 파일을 Microsoft Graph API로 계산해 대조하는 절차가 필요합니다."
             tone="navy"
           />
         </Card>
