@@ -81,7 +81,12 @@ const config: ExpoConfig = {
   },
   web: {
     bundler: "metro",
-    output: "static",
+    // This is a login-gated internal tool, not a public content site, so
+    // per-route static pre-rendering ("static") buys nothing — every route
+    // is behind a client-side auth check anyway. "single" builds one plain
+    // SPA entry instead, which also sidesteps a Railway-build-only failure
+    // where the static render pass silently produced empty pages.
+    output: "single",
     favicon: "./assets/images/favicon.png",
   },
   plugins: [
