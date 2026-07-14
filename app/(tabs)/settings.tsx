@@ -1,10 +1,14 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
+import { useRouter } from "expo-router";
 import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { Card, PageHeader, PrimaryButton } from "@/components/quote-ui";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
+import * as Api from "@/lib/_core/api";
+import * as Auth from "@/lib/_core/auth";
 import { useQuoteStore } from "@/lib/quote-store";
+import { trpc } from "@/lib/trpc";
 
 function GuideRow({
   icon,
@@ -12,7 +16,7 @@ function GuideRow({
   description,
   tone = "blue",
 }: {
-  icon: "calculate" | "lock" | "computer" | "info";
+  icon: "calculate" | "lock" | "computer" | "info" | "cloud";
   title: string;
   description: string;
   tone?: "blue" | "mint" | "navy" | "orange";
@@ -40,16 +44,35 @@ function GuideRow({
 
 export default function SettingsScreen() {
   const colors = useColors();
+  const router = useRouter();
+  const utils = trpc.useUtils();
   const { records, clearRecords } = useQuoteStore();
+
+  const handleLogout = () => {
+    Alert.alert("로그아웃 하시겠어요?", undefined, [
+      { text: "취소", style: "cancel" },
+      {
+        text: "로그아웃",
+        style: "destructive",
+        onPress: async () => {
+          await Api.logout().catch(() => {});
+          await Auth.removeSessionToken();
+          await Auth.clearUserInfo();
+          await utils.auth.me.invalidate();
+          router.replace("/login");
+        },
+      },
+    ]);
+  };
 
   const confirmClear = () => {
     if (!records.length) {
-      Alert.alert("저장된 이력이 없습니다", "새 견적을 만들면 이곳에 로컬로 보관됩니다.");
+      Alert.alert("저장된 이력이 없습니다", "새 견적을 만들면 이곳에 서버로 보관됩니다.");
       return;
     }
     Alert.alert(
       "모든 상담 이력을 삭제할까요?",
-      `${records.length}건의 상담 기록이 이 기기에서 영구 삭제됩니다.`,
+      `${records.length}건의 상담 기록이 두 계정 모두에서 영구 삭제됩니다.`,
       [
         { text: "취소", style: "cancel" },
         { text: "전체 삭제", style: "destructive", onPress: () => void clearRecords() },
@@ -86,15 +109,15 @@ export default function SettingsScreen() {
         <Card style={styles.cardGap}>
           <GuideRow
             icon="lock"
-            title="기기 로컬 보관"
-            description={`현재 ${records.length}건의 상담이 이 기기에 저장되어 있습니다. 계정이나 클라우드 동기화는 사용하지 않습니다.`}
+            title="계정 간 공유 보관"
+            description={`현재 ${records.length}건의 상담이 서버에 저장되어 승인된 두 계정이 함께 조회합니다.`}
             tone="mint"
           />
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
           <GuideRow
-            icon="computer"
-            title="PC Excel 브리지 확장"
-            description="Microsoft Excel 원본 수식을 직접 실행하려면 Windows PC에 별도 브리지 서비스를 설치해 앱의 입력 데이터를 전달해야 합니다."
+            icon="cloud"
+            title="Excel 검증 연동 (예정)"
+            description="Microsoft Excel 원본 수식으로 검증하려면 OneDrive에 올린 캐피탈사 파일을 Microsoft Graph API로 계산해 대조하는 절차가 필요합니다."
             tone="navy"
           />
         </Card>
@@ -109,6 +132,11 @@ export default function SettingsScreen() {
           </View>
           <PrimaryButton label="모든 이력 삭제" icon="delete-outline" tone="light" onPress={confirmClear} />
         </Card>
+
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>금리 관리</Text>
+        <PrimaryButton label="캐피탈사 금리 수정" icon="percent" onPress={() => router.push("/rates")} />
+
+        <PrimaryButton label="로그아웃" icon="logout" tone="light" onPress={handleLogout} />
 
         <View style={styles.appInfo}>
           <View style={styles.appMark}><Text style={styles.appMarkText}>U</Text></View>

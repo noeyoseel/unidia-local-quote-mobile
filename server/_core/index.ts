@@ -2,11 +2,16 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
+import path from "path";
+import { fileURLToPath } from "url";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "./oauth";
-import { registerStorageProxy } from "./storageProxy";
+import { registerAuthRoutes } from "./auth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// server/_core/index.ts is bundled to dist/index.js, so the project root is one level up from dist.
+const WEB_BUILD_DIR = path.resolve(__dirname, "../web-build");
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((resolve) => {
@@ -55,8 +60,7 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-  registerStorageProxy(app);
-  registerOAuthRoutes(app);
+  registerAuthRoutes(app);
 
   app.get("/api/health", (_req, res) => {
     res.json({ ok: true, timestamp: Date.now() });
@@ -69,6 +73,18 @@ async function startServer() {
       createContext,
     }),
   );
+
+  // In production, serve the exported web build (see `pnpm build:web`) from
+  // this same service so counselors just visit one URL on their phones.
+  if (process.env.NODE_ENV === "production") {
+    app.use(express.static(WEB_BUILD_DIR, { extensions: ["html"] }));
+    // Client-side router takes over from index.html for any route the static
+    // export didn't produce its own HTML file for (e.g. a hard refresh on a
+    // deep link before the export covers it).
+    app.get(/^(?!\/api).*/, (_req, res) => {
+      res.sendFile(path.join(WEB_BUILD_DIR, "index.html"));
+    });
+  }
 
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = await findAvailablePort(preferredPort);

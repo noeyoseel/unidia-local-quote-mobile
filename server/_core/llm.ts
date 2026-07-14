@@ -1,265 +1,73 @@
 import { ENV } from "./env";
 
-export type Role = "system" | "user" | "assistant" | "tool" | "function";
-
-export type TextContent = {
-  type: "text";
-  text: string;
-};
+export type TextContent = { type: "text"; text: string };
 
 export type ImageContent = {
   type: "image_url";
-  image_url: {
-    url: string;
-    detail?: "auto" | "low" | "high";
-  };
+  image_url: { url: string };
 };
 
-export type FileContent = {
-  type: "file_url";
-  file_url: {
-    url: string;
-    mime_type?: "audio/mpeg" | "audio/wav" | "application/pdf" | "audio/mp4" | "video/mp4";
-  };
-};
-
-export type MessageContent = string | TextContent | ImageContent | FileContent;
+export type MessageContent = string | TextContent | ImageContent;
 
 export type Message = {
-  role: Role;
+  role: "system" | "user" | "assistant";
   content: MessageContent | MessageContent[];
-  name?: string;
-  tool_call_id?: string;
-};
-
-export type Tool = {
-  type: "function";
-  function: {
-    name: string;
-    description?: string;
-    parameters?: Record<string, unknown>;
-  };
-};
-
-export type ToolChoicePrimitive = "none" | "auto" | "required";
-export type ToolChoiceByName = { name: string };
-export type ToolChoiceExplicit = {
-  type: "function";
-  function: {
-    name: string;
-  };
-};
-
-export type ToolChoice = ToolChoicePrimitive | ToolChoiceByName | ToolChoiceExplicit;
-
-export type InvokeParams = {
-  messages: Message[];
-  tools?: Tool[];
-  toolChoice?: ToolChoice;
-  tool_choice?: ToolChoice;
-  maxTokens?: number;
-  max_tokens?: number;
-  outputSchema?: OutputSchema;
-  output_schema?: OutputSchema;
-  responseFormat?: ResponseFormat;
-  response_format?: ResponseFormat;
-  model?: string;
-  thinking?: Record<string, unknown>;
-  reasoning?: Record<string, unknown>;
-};
-
-export type ToolCall = {
-  id: string;
-  type: "function";
-  function: {
-    name: string;
-    arguments: string;
-  };
-};
-
-export type InvokeResult = {
-  id: string;
-  created: number;
-  model: string;
-  choices: Array<{
-    index: number;
-    message: {
-      role: Role;
-      content: string | Array<TextContent | ImageContent | FileContent>;
-      tool_calls?: ToolCall[];
-    };
-    finish_reason: string | null;
-  }>;
-  usage?: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-  };
 };
 
 export type JsonSchema = {
   name: string;
   schema: Record<string, unknown>;
-  strict?: boolean;
 };
 
-export type OutputSchema = JsonSchema;
-
-export type ResponseFormat =
-  | { type: "text" }
-  | { type: "json_object" }
-  | { type: "json_schema"; json_schema: JsonSchema };
-
-const ensureArray = (value: MessageContent | MessageContent[]): MessageContent[] =>
-  Array.isArray(value) ? value : [value];
-
-const normalizeContentPart = (part: MessageContent): TextContent | ImageContent | FileContent => {
-  if (typeof part === "string") {
-    return { type: "text", text: part };
-  }
-
-  if (part.type === "text") {
-    return part;
-  }
-
-  if (part.type === "image_url") {
-    return part;
-  }
-
-  if (part.type === "file_url") {
-    return part;
-  }
-
-  throw new Error("Unsupported message content part");
+export type InvokeParams = {
+  model: string;
+  messages: Message[];
+  maxTokens: number;
+  responseFormat?: { type: "json_schema"; json_schema: JsonSchema };
 };
 
-const normalizeMessage = (message: Message) => {
-  const { role, name, tool_call_id } = message;
-
-  if (role === "tool" || role === "function") {
-    const content = ensureArray(message.content)
-      .map((part) => (typeof part === "string" ? part : JSON.stringify(part)))
-      .join("\n");
-
-    return {
-      role,
-      name,
-      tool_call_id,
-      content,
-    };
-  }
-
-  const contentParts = ensureArray(message.content).map(normalizeContentPart);
-
-  // If there's only text content, collapse to a single string for compatibility
-  if (contentParts.length === 1 && contentParts[0].type === "text") {
-    return {
-      role,
-      name,
-      content: contentParts[0].text,
-    };
-  }
-
-  return {
-    role,
-    name,
-    content: contentParts,
-  };
+export type InvokeResult = {
+  /** JSON string when responseFormat was json_schema, otherwise plain text. */
+  content: string;
 };
 
-const normalizeToolChoice = (
-  toolChoice: ToolChoice | undefined,
-  tools: Tool[] | undefined,
-): "none" | "auto" | ToolChoiceExplicit | undefined => {
-  if (!toolChoice) return undefined;
-
-  if (toolChoice === "none" || toolChoice === "auto") {
-    return toolChoice;
-  }
-
-  if (toolChoice === "required") {
-    if (!tools || tools.length === 0) {
-      throw new Error("tool_choice 'required' was provided but no tools were configured");
-    }
-
-    if (tools.length > 1) {
-      throw new Error(
-        "tool_choice 'required' needs a single tool or specify the tool name explicitly",
-      );
-    }
-
-    return {
-      type: "function",
-      function: { name: tools[0].function.name },
-    };
-  }
-
-  if ("name" in toolChoice) {
-    return {
-      type: "function",
-      function: { name: toolChoice.name },
-    };
-  }
-
-  return toolChoice;
-};
-
-const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
+const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
+const ANTHROPIC_VERSION = "2023-06-01";
 
 const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+  if (!ENV.anthropicApiKey) {
+    throw new Error("ANTHROPIC_API_KEY is not configured");
   }
 };
 
-const normalizeResponseFormat = ({
-  responseFormat,
-  response_format,
-  outputSchema,
-  output_schema,
-}: {
-  responseFormat?: ResponseFormat;
-  response_format?: ResponseFormat;
-  outputSchema?: OutputSchema;
-  output_schema?: OutputSchema;
-}):
-  | { type: "json_schema"; json_schema: JsonSchema }
-  | { type: "text" }
-  | { type: "json_object" }
-  | undefined => {
-  const explicitFormat = responseFormat || response_format;
-  if (explicitFormat) {
-    if (explicitFormat.type === "json_schema" && !explicitFormat.json_schema?.schema) {
-      throw new Error("responseFormat json_schema requires a defined schema object");
+function parseDataUrl(url: string): { mediaType: string; base64: string } {
+  const match = /^data:([^;]+);base64,(.+)$/.exec(url);
+  if (!match) {
+    throw new Error("Expected a base64 data URL for image content");
+  }
+  return { mediaType: match[1], base64: match[2] };
+}
+
+function toAnthropicContentBlocks(content: MessageContent | MessageContent[]) {
+  const parts = Array.isArray(content) ? content : [content];
+  return parts.map((part) => {
+    if (typeof part === "string") {
+      return { type: "text" as const, text: part };
     }
-    return explicitFormat;
-  }
-
-  const schema = outputSchema || output_schema;
-  if (!schema) return undefined;
-
-  if (!schema.name || !schema.schema) {
-    throw new Error("outputSchema requires both name and schema");
-  }
-
-  return {
-    type: "json_schema",
-    json_schema: {
-      name: schema.name,
-      schema: schema.schema,
-      ...(typeof schema.strict === "boolean" ? { strict: schema.strict } : {}),
-    },
-  };
-};
+    if (part.type === "text") {
+      return { type: "text" as const, text: part.text };
+    }
+    const { mediaType, base64 } = parseDataUrl(part.image_url.url);
+    return {
+      type: "image" as const,
+      source: { type: "base64" as const, media_type: mediaType, data: base64 },
+    };
+  });
+}
 
 const RETRY_MAX_RETRIES = 4;
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 30_000;
-
-type FetchInit = NonNullable<Parameters<typeof fetch>[1]>;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -280,9 +88,7 @@ const computeBackoffDelay = (attempt: number, retryAfterMs?: number): number => 
   return Math.min(Math.max(jittered, retryAfterMs ?? 0), RETRY_MAX_DELAY_MS);
 };
 
-// Retries non-2xx responses and network errors with exponential backoff, then returns
-// the final Response so callers keep their existing error handling.
-const fetchWithBackoff = async (url: string, init: FetchInit): Promise<Response> => {
+const fetchWithBackoff = async (url: string, init: NonNullable<Parameters<typeof fetch>[1]>) => {
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= RETRY_MAX_RETRIES; attempt++) {
@@ -298,89 +104,54 @@ const fetchWithBackoff = async (url: string, init: FetchInit): Promise<Response>
       } catch {
         // Body already settled; nothing to clean up.
       }
-      console.warn(
-        `LLM request retry ${attempt + 1}/${RETRY_MAX_RETRIES} after status ${response.status}`,
-      );
+      console.warn(`LLM request retry ${attempt + 1}/${RETRY_MAX_RETRIES} after status ${response.status}`);
       await sleep(computeBackoffDelay(attempt, retryAfterMs));
     } catch (error) {
       lastError = error;
       if (attempt === RETRY_MAX_RETRIES) throw error;
-      console.warn(
-        `LLM request retry ${attempt + 1}/${RETRY_MAX_RETRIES} after network error`,
-      );
+      console.warn(`LLM request retry ${attempt + 1}/${RETRY_MAX_RETRIES} after network error`);
       await sleep(computeBackoffDelay(attempt));
     }
   }
 
-  throw lastError instanceof Error
-    ? lastError
-    : new Error("LLM request failed after exhausting retries");
+  throw lastError instanceof Error ? lastError : new Error("LLM request failed after exhausting retries");
 };
 
+/**
+ * Calls Claude via the Anthropic Messages API. When `responseFormat` is a
+ * json_schema, forces structured output via tool use (Anthropic has no
+ * native response_format param) so callers get back a parseable JSON string.
+ */
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   assertApiKey();
 
-  const {
-    messages,
-    tools,
-    toolChoice,
-    tool_choice,
-    outputSchema,
-    output_schema,
-    responseFormat,
-    response_format,
-    model,
-    thinking,
-    reasoning,
-    maxTokens,
-    max_tokens,
-  } = params;
+  const systemMessages = params.messages.filter((m) => m.role === "system");
+  const conversationMessages = params.messages.filter((m) => m.role !== "system");
 
   const payload: Record<string, unknown> = {
-    messages: messages.map(normalizeMessage),
+    model: params.model,
+    max_tokens: params.maxTokens,
+    system: systemMessages
+      .map((m) => (typeof m.content === "string" ? m.content : toAnthropicContentBlocks(m.content).map((b) => ("text" in b ? b.text : "")).join("\n")))
+      .join("\n") || undefined,
+    messages: conversationMessages.map((m) => ({
+      role: m.role,
+      content: toAnthropicContentBlocks(m.content),
+    })),
   };
 
-  if (model) {
-    payload.model = model;
+  if (params.responseFormat?.type === "json_schema") {
+    const { name, schema } = params.responseFormat.json_schema;
+    payload.tools = [{ name, description: `Return the extracted data as ${name}.`, input_schema: schema }];
+    payload.tool_choice = { type: "tool", name };
   }
 
-  if (tools && tools.length > 0) {
-    payload.tools = tools;
-  }
-
-  const normalizedToolChoice = normalizeToolChoice(toolChoice || tool_choice, tools);
-  if (normalizedToolChoice) {
-    payload.tool_choice = normalizedToolChoice;
-  }
-
-  const resolvedMaxTokens = max_tokens ?? maxTokens;
-  if (typeof resolvedMaxTokens === "number") {
-    payload.max_tokens = resolvedMaxTokens;
-  }
-
-  if (thinking) {
-    payload.thinking = thinking;
-  }
-  if (reasoning) {
-    payload.reasoning = reasoning;
-  }
-
-  const normalizedResponseFormat = normalizeResponseFormat({
-    responseFormat,
-    response_format,
-    outputSchema,
-    output_schema,
-  });
-
-  if (normalizedResponseFormat) {
-    payload.response_format = normalizedResponseFormat;
-  }
-
-  const response = await fetchWithBackoff(resolveApiUrl(), {
+  const response = await fetchWithBackoff(ANTHROPIC_API_URL, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
+      "x-api-key": ENV.anthropicApiKey,
+      "anthropic-version": ANTHROPIC_VERSION,
     },
     body: JSON.stringify(payload),
   });
@@ -390,39 +161,21 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     throw new Error(`LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`);
   }
 
-  return (await response.json()) as InvokeResult;
-}
+  const data = (await response.json()) as {
+    content: Array<{ type: string; text?: string; input?: unknown }>;
+  };
 
-export type ModelInfo = {
-  id: string;
-  object: string;
-  created: number;
-  owned_by: string;
-};
-
-export type ModelsResponse = {
-  object: string;
-  data: ModelInfo[];
-};
-
-export async function listLLMModels(): Promise<ModelsResponse> {
-  assertApiKey();
-
-  const url =
-    ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-      ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/models`
-      : "https://forge.manus.im/v1/models";
-
-  const response = await fetchWithBackoff(url, {
-    headers: { authorization: `Bearer ${ENV.forgeApiKey}` },
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `List LLM models failed: ${response.status} ${response.statusText} – ${errorText}`,
-    );
+  if (params.responseFormat?.type === "json_schema") {
+    const toolUse = data.content.find((block) => block.type === "tool_use");
+    if (!toolUse) {
+      throw new Error("Expected a tool_use block in the Claude response but found none");
+    }
+    return { content: JSON.stringify(toolUse.input) };
   }
 
-  return (await response.json()) as ModelsResponse;
+  const text = data.content.find((block) => block.type === "text")?.text;
+  if (typeof text !== "string") {
+    throw new Error("Expected a text block in the Claude response but found none");
+  }
+  return { content: text };
 }

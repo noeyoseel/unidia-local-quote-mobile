@@ -39,7 +39,8 @@ export default function HistoryScreen() {
         record.vehicle.model,
         record.vehicle.trim,
         record.vehicle.customerMemo,
-        CAPITAL_LABELS[record.conditions.capitalCompany],
+        record.vehicle.customerPhone,
+        ...record.conditions.capitalCompanies.map((company) => CAPITAL_LABELS[company]),
       ]
         .join(" ")
         .toLowerCase()
@@ -61,16 +62,16 @@ export default function HistoryScreen() {
         ListHeaderComponent={
           <View style={styles.headerBlock}>
             <PageHeader
-              eyebrow="LOCAL ARCHIVE"
+              eyebrow="SHARED ARCHIVE"
               title="상담 이력"
-              description="기기에 저장된 상담을 찾아 이어서 편집하거나 완료 견적을 다시 확인하세요."
+              description="두 상담사가 함께 보는 이력입니다. 이어서 편집하거나 완료 견적을 다시 확인하세요."
             />
             <View style={[styles.search, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <MaterialIcons name="search" size={21} color={colors.muted} />
               <TextInput
                 value={query}
                 onChangeText={setQuery}
-                placeholder="차량명, 고객 메모, 캐피탈사 검색"
+                placeholder="차량명, 고객 메모, 연락처, 캐피탈사 검색"
                 placeholderTextColor={colors.muted}
                 returnKeyType="search"
                 style={[styles.searchInput, { color: colors.text }]}
@@ -101,7 +102,10 @@ export default function HistoryScreen() {
               <View style={[styles.details, { borderTopColor: colors.border }]}>
                 <View style={styles.detailText}>
                   <Text style={[styles.product, { color: colors.text }]}>
-                    {PRODUCT_LABELS[item.conditions.productType]} · {CAPITAL_LABELS[item.conditions.capitalCompany]}
+                    {PRODUCT_LABELS[item.conditions.productType]} ·{" "}
+                    {item.selectedCompany
+                      ? CAPITAL_LABELS[item.selectedCompany]
+                      : item.conditions.capitalCompanies.map((company) => CAPITAL_LABELS[company]).join(" · ")}
                   </Text>
                   <Text style={[styles.meta, { color: colors.muted }]}>
                     {item.vehicle.contractMonths}개월 · 연 {item.vehicle.annualMileage.toLocaleString("ko-KR")}km

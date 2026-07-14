@@ -1,10 +1,52 @@
 import { COOKIE_NAME } from "@shared/const";
+import {
+  CAPITAL_COMPANY_VALUES,
+  quoteConditionsSchema,
+  quoteRecordInputSchema,
+  vehicleInfoSchema,
+  type QuoteRecord,
+} from "@shared/quote";
 import { z } from "zod";
 
 import { getSessionCookieOptions } from "./_core/cookies";
 import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import {
+  deleteAllQuoteRecords,
+  deleteQuoteRecord,
+  listCapitalRates,
+  listQuoteRecords,
+  saveQuoteRecord,
+  upsertCapitalRate,
+} from "./db";
+import { compareQuotes, FALLBACK_CAPITAL_RULES, type CapitalRules } from "../lib/quote-engine";
+
+async function loadCapitalRules(): Promise<CapitalRules> {
+  const rows = await listCapitalRates();
+  if (rows.length === 0) return FALLBACK_CAPITAL_RULES;
+
+  const rules = { ...FALLBACK_CAPITAL_RULES };
+  for (const row of rows) {
+    rules[row.company] = { annualRate: row.annualRate, residualAdjustment: row.residualAdjustment };
+  }
+  return rules;
+}
+
+function rowToRecord(row: Awaited<ReturnType<typeof listQuoteRecords>>[number]): QuoteRecord {
+  return {
+    id: row.id,
+    status: row.status,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    imageUri: row.imageUri ?? undefined,
+    vehicle: row.vehicle,
+    conditions: row.conditions,
+    compareResults: row.compareResults ?? undefined,
+    selectedCompany: row.selectedCompany ?? undefined,
+    result: row.result ?? undefined,
+  };
+}
 
 const inquiryExtractionSchema = z.object({
   brand: z.string(),
@@ -28,7 +70,40 @@ export const appRouter = router({
     }),
   }),
   quote: router({
-    extractInquiry: publicProcedure
+    list: protectedProcedure.query(async () => {
+      const rows = await listQuoteRecords();
+      return rows.map(rowToRecord);
+    }),
+    save: protectedProcedure.input(quoteRecordInputSchema).mutation(async ({ input, ctx }) => {
+      await saveQuoteRecord({
+        id: input.id,
+        status: input.status,
+        creatorEmail: ctx.user.email,
+        imageUri: input.imageUri ?? null,
+        vehicle: input.vehicle,
+        conditions: input.conditions,
+        compareResults: input.compareResults ?? null,
+        selectedCompany: input.selectedCompany ?? null,
+        result: input.result ?? null,
+        createdAt: new Date(input.createdAt),
+      });
+      return { success: true } as const;
+    }),
+    compare: protectedProcedure
+      .input(z.object({ vehicle: vehicleInfoSchema, conditions: quoteConditionsSchema }))
+      .mutation(async ({ input }) => {
+        const rates = await loadCapitalRules();
+        return compareQuotes(input.vehicle, input.conditions, rates);
+      }),
+    delete: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+      await deleteQuoteRecord(input.id);
+      return { success: true } as const;
+    }),
+    clearAll: protectedProcedure.mutation(async () => {
+      await deleteAllQuoteRecords();
+      return { success: true } as const;
+    }),
+    extractInquiry: protectedProcedure
       .input(
         z.object({
           imageDataUrl: z.string().min(100).max(12_000_000),
@@ -36,7 +111,7 @@ export const appRouter = router({
       )
       .mutation(async ({ input }) => {
         const response = await invokeLLM({
-          model: "gemini-3-flash-preview",
+          model: "claude-haiku-4-5-20251001",
           messages: [
             {
               role: "system",
@@ -52,16 +127,15 @@ export const appRouter = router({
                 },
                 {
                   type: "image_url",
-                  image_url: { url: input.imageDataUrl, detail: "high" },
+                  image_url: { url: input.imageDataUrl },
                 },
               ],
             },
           ],
-          response_format: {
+          responseFormat: {
             type: "json_schema",
             json_schema: {
               name: "vehicle_inquiry",
-              strict: true,
               schema: {
                 type: "object",
                 properties: {
@@ -91,12 +165,30 @@ export const appRouter = router({
           maxTokens: 1200,
         });
 
-        const content = response.choices[0]?.message?.content;
-        if (typeof content !== "string") {
-          throw new Error("이미지 분석 결과를 읽지 못했습니다.");
-        }
-
-        return inquiryExtractionSchema.parse(JSON.parse(content));
+        return inquiryExtractionSchema.parse(JSON.parse(response.content));
+      }),
+  }),
+  rates: router({
+    list: protectedProcedure.query(async () => {
+      const rules = await loadCapitalRules();
+      return CAPITAL_COMPANY_VALUES.map((company) => ({ company, ...rules[company] }));
+    }),
+    update: protectedProcedure
+      .input(
+        z.object({
+          company: z.enum(CAPITAL_COMPANY_VALUES),
+          annualRate: z.number().min(0).max(1),
+          residualAdjustment: z.number().min(-1).max(1),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        await upsertCapitalRate({
+          company: input.company,
+          annualRate: input.annualRate,
+          residualAdjustment: input.residualAdjustment,
+          updatedByEmail: ctx.user.email,
+        });
+        return { success: true } as const;
       }),
   }),
 });

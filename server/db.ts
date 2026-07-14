@@ -1,7 +1,13 @@
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
-import { ENV } from "./_core/env";
+import {
+  capitalRates,
+  quoteRecords,
+  InsertCapitalRate,
+  InsertQuoteRecordRow,
+  InsertUser,
+  users,
+} from "../drizzle/schema";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -55,9 +61,6 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     if (user.role !== undefined) {
       values.role = user.role;
       updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = "admin";
-      updateSet.role = "admin";
     }
 
     if (!values.lastSignedIn) {
@@ -89,4 +92,64 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+export async function listQuoteRecords() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(quoteRecords).orderBy(desc(quoteRecords.updatedAt));
+}
+
+export async function saveQuoteRecord(record: InsertQuoteRecordRow): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .insert(quoteRecords)
+    .values(record)
+    .onDuplicateKeyUpdate({
+      set: {
+        status: record.status,
+        imageUri: record.imageUri,
+        vehicle: record.vehicle,
+        conditions: record.conditions,
+        compareResults: record.compareResults,
+        selectedCompany: record.selectedCompany,
+        result: record.result,
+        updatedAt: new Date(),
+      },
+    });
+}
+
+export async function deleteQuoteRecord(id: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(quoteRecords).where(eq(quoteRecords.id, id));
+}
+
+export async function deleteAllQuoteRecords(): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(quoteRecords);
+}
+
+export async function listCapitalRates() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(capitalRates);
+}
+
+export async function upsertCapitalRate(rate: InsertCapitalRate): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .insert(capitalRates)
+    .values(rate)
+    .onDuplicateKeyUpdate({
+      set: {
+        annualRate: rate.annualRate,
+        residualAdjustment: rate.residualAdjustment,
+        updatedByEmail: rate.updatedByEmail,
+        updatedAt: new Date(),
+      },
+    });
+}
