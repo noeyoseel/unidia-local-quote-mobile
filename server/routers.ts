@@ -111,7 +111,7 @@ export const appRouter = router({
       )
       .mutation(async ({ input }) => {
         const response = await invokeLLM({
-          model: "claude-haiku-4-5-20251001",
+          model: "claude-sonnet-5",
           messages: [
             {
               role: "system",
