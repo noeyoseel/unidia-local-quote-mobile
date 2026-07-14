@@ -1,12 +1,13 @@
 import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { useRouter } from "expo-router";
-import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { Card, PageHeader, PrimaryButton } from "@/components/quote-ui";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
 import * as Api from "@/lib/_core/api";
 import * as Auth from "@/lib/_core/auth";
+import { confirm, notify } from "@/lib/dialogs";
 import { useQuoteStore } from "@/lib/quote-store";
 import { trpc } from "@/lib/trpc";
 
@@ -48,36 +49,27 @@ export default function SettingsScreen() {
   const utils = trpc.useUtils();
   const { records, clearRecords } = useQuoteStore();
 
-  const handleLogout = () => {
-    Alert.alert("로그아웃 하시겠어요?", undefined, [
-      { text: "취소", style: "cancel" },
-      {
-        text: "로그아웃",
-        style: "destructive",
-        onPress: async () => {
-          await Api.logout().catch(() => {});
-          await Auth.removeSessionToken();
-          await Auth.clearUserInfo();
-          await utils.auth.me.invalidate();
-          router.replace("/login");
-        },
-      },
-    ]);
+  const handleLogout = async () => {
+    const confirmed = await confirm("로그아웃 하시겠어요?", undefined, "로그아웃");
+    if (!confirmed) return;
+    await Api.logout().catch(() => {});
+    await Auth.removeSessionToken();
+    await Auth.clearUserInfo();
+    await utils.auth.me.invalidate();
+    router.replace("/login");
   };
 
-  const confirmClear = () => {
+  const confirmClear = async () => {
     if (!records.length) {
-      Alert.alert("저장된 이력이 없습니다", "새 견적을 만들면 이곳에 서버로 보관됩니다.");
+      notify("저장된 이력이 없습니다", "새 견적을 만들면 이곳에 서버로 보관됩니다.");
       return;
     }
-    Alert.alert(
+    const confirmed = await confirm(
       "모든 상담 이력을 삭제할까요?",
       `${records.length}건의 상담 기록이 두 계정 모두에서 영구 삭제됩니다.`,
-      [
-        { text: "취소", style: "cancel" },
-        { text: "전체 삭제", style: "destructive", onPress: () => void clearRecords() },
-      ],
+      "전체 삭제",
     );
+    if (confirmed) void clearRecords();
   };
 
   return (

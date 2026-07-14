@@ -6,7 +6,6 @@ import * as Sharing from "expo-sharing";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -21,6 +20,7 @@ import { captureRef } from "react-native-view-shot";
 import { Card, FormField, PageHeader, PrimaryButton, SelectChip } from "@/components/quote-ui";
 import { ScreenContainer } from "@/components/screen-container";
 import { useColors } from "@/hooks/use-colors";
+import { confirm, notify } from "@/lib/dialogs";
 import { formatKrw, validateQuoteConditions, validateQuoteInput } from "@/lib/quote-engine";
 import { useQuoteStore } from "@/lib/quote-store";
 import { trpc } from "@/lib/trpc";
@@ -193,7 +193,7 @@ export default function NewQuoteScreen() {
   const confirmVehicle = async () => {
     const errors = validateQuoteInput(vehicle);
     if (errors.length) {
-      Alert.alert("입력 내용을 확인해 주세요", errors[0]);
+      notify("입력 내용을 확인해 주세요", errors[0]);
       return;
     }
     await saveRecord(buildRecord("consulting"));
@@ -203,7 +203,7 @@ export default function NewQuoteScreen() {
   const runComparison = async () => {
     const conditionErrors = validateQuoteConditions(vehicle, conditions);
     if (conditionErrors.length) {
-      Alert.alert("조건을 확인해 주세요", conditionErrors[0]);
+      notify("조건을 확인해 주세요", conditionErrors[0]);
       return;
     }
     try {
@@ -214,7 +214,7 @@ export default function NewQuoteScreen() {
       await saveRecord(buildRecord("consulting", vehicle, conditions, nextCompareResults, undefined, undefined));
       setStep(3);
     } catch (error) {
-      Alert.alert("견적 산출 실패", error instanceof Error ? error.message : "입력값을 확인해 주세요.");
+      notify("견적 산출 실패", error instanceof Error ? error.message : "입력값을 확인해 주세요.");
     }
   };
 
@@ -250,7 +250,7 @@ export default function NewQuoteScreen() {
         UTI: "public.png",
       });
     } catch {
-      Alert.alert("공유할 수 없습니다", "기기 공유 설정을 확인하거나 문구 복사를 이용해 주세요.");
+      notify("공유할 수 없습니다", "기기 공유 설정을 확인하거나 문구 복사를 이용해 주세요.");
     }
   };
 
@@ -258,10 +258,16 @@ export default function NewQuoteScreen() {
     if (!result) return;
     await saveRecord(buildRecord("completed"));
     setNotice("견적을 완료 이력으로 저장했습니다.");
-    Alert.alert("견적 저장 완료", "상담 이력에서 다시 확인할 수 있습니다.", [
-      { text: "새 견적", onPress: resetFlow },
-      { text: "이력 보기", onPress: () => router.push("/(tabs)/history") },
-    ]);
+    const viewHistory = await confirm(
+      "견적 저장 완료",
+      "이력 보기로 이동할까요? 취소하면 새 견적을 시작합니다.",
+      "이력 보기",
+    );
+    if (viewHistory) {
+      router.push("/(tabs)/history");
+    } else {
+      resetFlow();
+    }
   };
 
   return (
