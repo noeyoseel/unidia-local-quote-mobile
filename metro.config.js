@@ -5,9 +5,9 @@ const config = getDefaultConfig(__dirname);
 
 module.exports = withNativeWind(config, {
   input: "./global.css",
-  // Force write CSS to file system instead of virtual modules.
-  // This fixes iOS styling issues in local development, but writing into
-  // node_modules confuses Metro's file crawler in container builds (Railway)
-  // with a "Failed to get the SHA-1" error, so it's disabled for production.
-  forceWriteFileSystem: process.env.NODE_ENV !== "production",
+  // Writing NativeWind's CSS cache into node_modules confuses Metro's file
+  // crawler in container builds (Railway) with a "Failed to get the SHA-1"
+  // error. This project is web-only (no iOS dev workflow in use), so it's
+  // always off rather than depending on NODE_ENV being set correctly.
+  forceWriteFileSystem: false,
 });
