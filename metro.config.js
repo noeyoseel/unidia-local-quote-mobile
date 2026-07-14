@@ -3,11 +3,18 @@ const { withNativeWind } = require("nativewind/metro");
 
 const config = getDefaultConfig(__dirname);
 
+// Metro's file crawler tries to hash react-native-css-interop's own cache
+// directory and fails ("Failed to get the SHA-1") in container builds
+// (Railway) where that directory may already exist from a cached
+// node_modules layer. It's never a real source module, so block it outright
+// instead of relying on it not being written (forceWriteFileSystem: false
+// alone wasn't enough once a stale cache dir was already on disk).
+config.resolver.blockList = [
+  ...config.resolver.blockList,
+  /node_modules[\\/]react-native-css-interop[\\/]\.cache[\\/].*/,
+];
+
 module.exports = withNativeWind(config, {
   input: "./global.css",
-  // Writing NativeWind's CSS cache into node_modules confuses Metro's file
-  // crawler in container builds (Railway) with a "Failed to get the SHA-1"
-  // error. This project is web-only (no iOS dev workflow in use), so it's
-  // always off rather than depending on NODE_ENV being set correctly.
   forceWriteFileSystem: false,
 });
